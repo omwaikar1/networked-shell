@@ -1,0 +1,94 @@
+================================================================
+ Project 3 Report
+ Networked Concurrent Shell (NCS)
+================================================================
+
+Team        : Om Waikar, Atharva Tupe, Samruddhi Navale, Sakshi Takalkar
+Language    : C (POSIX, pthreads, BSD sockets)
+Platform    : Linux / macOS / WSL
+
+
+1. Project Description
+The Networked Concurrent Shell (NCS) is a multi-client shell server written in C. A server runs on one machine and accepts up to 32 TCP clients, each handled by a dedicated POSIX thread with its own isolated session separate working directory, command history, and nickname. External commands are executed via fork + exec of /bin/sh -c, with stdout/stderr piped back to the client. An inter-session messaging layer allows clients to send private or broadcast messages. The project demonstrates networking (sockets), concurrency (pthreads + mutex-protected shared state), and process control (fork/exec/pipe/waitpid) in a single C codebase.
+
+2. Key Features
+
+TCP server on a configurable port (default 4242), one detached pthread per client
+Per-session isolation: working directory, command history, and nickname
+Global session table protected by a pthread mutex
+Multi-threaded client: separate threads for socket reads and stdin writes
+Built-in commands: help, cd, pwd, whoami, history, sessions, echo, uptime, clear, nick, who, msg, broadcast, exit/quit
+Non-builtin commands executed via /bin/sh -c in the session's cwd; output streamed back followed by [exit N]
+Robust I/O: send_all() handles short writes/EINTR; SIGPIPE ignored; SIGINT/SIGTERM trigger clean shutdown
+Line-oriented input parser handles multiple commands per recv() chunk
+Argument tokenizer respecting single and double quoted strings
+Mutex-protected timestamped server logger
+
+
+3. Source Layout
+networked-shell/
+  Makefile        - build system (gcc -pthread)
+  docs/REPORT.txt - this file
+  README.md       - quick reference
+  src/
+    common.h      - constants (ports, buffer sizes, limits)
+    session.h     - Session struct + thread/IO declarations
+    commands.h    - dispatcher and built-in registration
+    messaging.h   - inter-session messaging built-ins
+    utils.h       - shared helpers
+    server.c      - listener, signal handling, session table
+    session.c     - per-client thread loop, banner, prompt
+    commands.c    - dispatcher, core built-ins, sh -c runner
+    messaging.c   - nick / who / msg / broadcast built-ins
+    client.c      - TCP client with reader thread
+    utils.c       - tokenizer, trim, send_all, logger
+  bin/            - produced by `make`
+    ncs-server
+    ncs-client
+
+4. How to Build
+
+Requirements: gcc (or clang), GNU make, POSIX system with pthreads (Linux, macOS, or WSL).
+make        # builds bin/ncs-server and bin/ncs-client
+make clean  # removes object files and bin/
+Build flags: -Wall -Wextra -O2 -pthread
+
+5. How to Run
+
+Terminal 1 — start the server:
+./bin/ncs-server          # default port 4242
+./bin/ncs-server 5050     # custom port
+Terminal 2+ — connect a client:
+./bin/ncs-client 127.0.0.1
+./bin/ncs-client 127.0.0.1 5050
+Each client gets a unique session ID, isolated working directory, history, and nickname. Press Ctrl-C in the server terminal to shut down and disconnect all clients.
+
+6. Usage
+
+ncs[1]:/home/user$ nick alice
+ncs[1]:/home/user$ who
+  [ 1] alice   ip=127.0.0.1  (you)
+  [ 2] bob     ip=127.0.0.1
+ncs[1]:/home/user$ msg 2 hi bob
+ncs[1]:/home/user$ broadcast hello everyone
+ncs[1]:/home/user$ cd /tmp && ls
+... output ...
+[exit 0]
+Client 2 sees incoming messages inline:
+*** msg from [1 alice]: hi bob ***
+*** broadcast from [1 alice]: hello everyone ***
+
+
+7. Team Member Contributions
+
+Samruddhi Navale — client.c, utils.c, utils.h, Makefile, README.md
+TCP client, reader thread, stdin→socket main thread, parse_args tokenizer with quote handling, trim, send_all, set_nonblocking, thread-safe logger.
+
+Om Waikar — server.c, common.h
+TCP socket setup, accept loop, pthread creation, session table with mutex protection, signal handling (SIGINT/SIGTERM/SIGPIPE), port CLI parsing.
+
+Atharva Tupe — session.c, commands.c, session.h, commands.h
+Session lifecycle, worker thread loop, history ring buffer, built-in dispatcher, core built-ins (help, cd, pwd, whoami, history, sessions, echo, uptime, clear, exit), external command runner via fork/exec/pipe/waitpid.
+
+Sakshi Takalkar — messaging.c, messaging.h
+nick, who, msg, and broadcast built-ins with mutex-safe session access; deliver()/join_args() helpers; registered built-ins in the dispatcher table; added nick[32] field to session.h.
